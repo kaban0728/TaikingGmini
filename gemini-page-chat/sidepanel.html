@@ -25,11 +25,11 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 5px;
+      margin-bottom: 10px; /* 少し間隔を空ける */
     }
     h3 { margin: 0; }
 
-    /* アイコンボタンの共通スタイル */
+    /* アイコンボタン */
     .icon-btn {
       background: none;
       border: 1px solid #ddd;
@@ -42,9 +42,14 @@
       justify-content: center;
     }
     .icon-btn:hover { background-color: #f0f0f0; }
-    /* Material Iconsのサイズ調整 */
-    .icon-btn .material-icons {
-      font-size: 20px; 
+    .icon-btn .material-icons { font-size: 20px; }
+
+    /* 「現在の話題:」ラベル */
+    .topic-label {
+      font-size: 0.75em;
+      color: #666;
+      margin-bottom: 4px;
+      font-weight: bold;
     }
 
     /* ページ情報表示エリア */
@@ -96,16 +101,13 @@
     label { font-size: 0.8em; color: #666; display: block; margin-bottom: 4px;}
     select { width: 100%; box-sizing: border-box; padding: 4px; }
 
-    /* 保存ボタン固有のスタイル（リロードボタンと共通化しても良いが念のため個別指定も残す） */
     #export-btn {
-      background-color: #4CAF50; /* 緑色を維持 */
+      background-color: #4CAF50;
       color: white;
       border: none;
     }
     #export-btn:hover { background-color: #45a049; }
-    #export-btn .material-icons {
-       font-size: 24px; /* 保存ボタンは少し大きめに */
-    }
+    #export-btn .material-icons { font-size: 24px; }
     
     /* チャット履歴エリア */
     #chat-history { 
@@ -146,6 +148,8 @@
       <span class="material-icons">refresh</span>
     </button>
   </div>
+
+  <div class="topic-label">現在の話題:</div>
 
   <div id="page-info" style="display:none;">
     <img id="page-favicon" src="" alt="">

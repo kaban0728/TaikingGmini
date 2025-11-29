@@ -3,10 +3,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const inputField = document.getElementById('user-input');
   const sendBtn = document.getElementById('send-btn');
   const exportBtn = document.getElementById('export-btn');
-  const reloadBtn = document.getElementById('reload-btn'); // 追加
+  const reloadBtn = document.getElementById('reload-btn');
   const modelSelect = document.getElementById('model-select');
 
-  // UI要素（ページ情報）
   const pageInfoContainer = document.getElementById('page-info');
   const pageFavicon = document.getElementById('page-favicon');
   const pageTitle = document.getElementById('page-title');
@@ -14,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let currentApiKey = "";
 
-  // 1. APIキーの確認・読み込み
+  // 1. APIキー確認
   chrome.storage.local.get(['gemini_api_key'], (result) => {
     if (result.gemini_api_key) {
       currentApiKey = result.gemini_api_key;
@@ -31,27 +30,27 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   let pageContext = "";
-  let currentPageUrl = "";
+  let currentPageUrl = ""; // エクスポートで使用
 
-  // 2. ページ内容取得ロジックを関数化
+  // 2. ページ読み込み処理
   function loadCurrentPageContext() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (chrome.runtime.lastError || !tabs || tabs.length === 0) return;
       
       const tab = tabs[0];
       const tabId = tab.id;
-      currentPageUrl = tab.url;
       
-      // ページ情報の表示更新
+      // ★ここでURLを更新するため、リロード後に保存ボタンを押せば最新のURLが使われます
+      currentPageUrl = tab.url; 
+      
       updatePageInfoUI(tab);
 
       if (tab.url.startsWith("chrome://") || tab.url.startsWith("edge://") || tab.url.startsWith("about:")) {
         appendMessage("System", `[${tab.title}]<br>このページの内容は取得できません。`);
-        pageContext = ""; // コンテキストをクリア
+        pageContext = "";
         return;
       }
 
-      // コンテンツスクリプトを実行して内容を取得
       chrome.scripting.executeScript({
         target: { tabId: tabId },
         files: ['content.js']
@@ -72,7 +71,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ページ情報をUIに反映する関数
   function updatePageInfoUI(tab) {
     pageInfoContainer.style.display = 'flex';
     pageTitle.textContent = tab.title || "No Title";
@@ -82,20 +80,20 @@ document.addEventListener('DOMContentLoaded', () => {
       pageFavicon.src = tab.favIconUrl;
       pageFavicon.style.display = 'block';
     } else {
-      pageFavicon.style.display = 'none'; // ファビコンがない場合は隠す
+      pageFavicon.style.display = 'none';
     }
   }
 
-  // ★ 初期ロード実行
+  // 初期ロード
   loadCurrentPageContext();
 
-  // ★ リロードボタンの処理
+  // リロードボタン
   reloadBtn.addEventListener('click', () => {
     appendMessage("System", "ページ情報を更新しています...");
     loadCurrentPageContext();
   });
 
-  // Ctrl+Enter で送信
+  // Ctrl+Enter 送信
   inputField.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -103,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 会話のエクスポート処理
+  // ★ エクスポート処理（リロード後の情報を反映）
   exportBtn.addEventListener('click', () => {
     const messages = historyDiv.querySelectorAll('.message');
     
@@ -117,7 +115,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let exportText = `# Gemini Page Chat History\n\n`;
     exportText += `- **Date**: ${dateStr}\n`;
-    exportText += `- **Page**: ${pageTitle.textContent}\n`; // タイトルも含める
+    // ★ pageTitle.textContent と currentPageUrl は loadCurrentPageContext で最新化されています
+    exportText += `- **Page**: ${pageTitle.textContent}\n`; 
     exportText += `- **URL**: ${currentPageUrl}\n\n`;
     exportText += `---\n\n`;
 
@@ -146,20 +145,17 @@ document.addEventListener('DOMContentLoaded', () => {
     URL.revokeObjectURL(url);
   });
 
-  // 送信ボタンクリック時の処理
   sendBtn.addEventListener('click', async () => {
     const userInput = inputField.value.trim();
     if (!userInput) return;
 
     if (!currentApiKey) {
-      // APIキー登録処理
       if (userInput.startsWith("AIza") && userInput.length > 30) {
         chrome.storage.local.set({ gemini_api_key: userInput }, () => {
           currentApiKey = userInput;
           appendMessage("System", "APIキーを登録しました！<br>続けて質問を入力してください。");
           inputField.value = "";
           inputField.placeholder = "質問を入力 (Ctrl+Enterで送信)...";
-          // キー登録後に再度ページ読み込みログを出すなどしても良い
         });
       } else {
         appendMessage("Error", "無効なAPIキーの形式です。<br>正しいAPIキーを入力してください。");
@@ -167,7 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // チャット送信処理
     const selectedModel = modelSelect.value;
     
     appendMessage("You", userInput);
@@ -180,7 +175,6 @@ document.addEventListener('DOMContentLoaded', () => {
       appendMessage("Gemini", response);
     } catch (error) {
       removeMessage(loadingId);
-      
       if (error.message.includes("400") || error.message.includes("API key")) {
          appendMessage("Error", "APIエラーが発生しました。APIキーが無効の可能性があります。<br>拡張機能を再読み込みしてキーを再設定してください。");
       } else {
