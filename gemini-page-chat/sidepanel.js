@@ -5,17 +5,37 @@ document.addEventListener('DOMContentLoaded', () => {
   const exportBtn = document.getElementById('export-btn');
   const modelSelect = document.getElementById('model-select');
 
-  if (typeof GEMINI_API_KEY === 'undefined' || GEMINI_API_KEY.includes("貼り付けて")) {
-    appendMessage("Error", "設定エラー: config.js が正しく読み込まれていません。<br>APIキーを設定してください。");
-  }
+  // 現在有効なAPIキーを保持する変数
+  let currentApiKey = "";
+
+  // 1. 起動時にAPIキーを確認 (ストレージ優先 -> config.jsの順)
+  chrome.storage.local.get(['gemini_api_key'], (result) => {
+    // ストレージに保存されているか確認
+    if (result.gemini_api_key) {
+      currentApiKey = result.gemini_api_key;
+    } 
+    // ストレージになく、config.jsに有効なキーがある場合
+    else if (typeof GEMINI_API_KEY !== 'undefined' && 
+             !GEMINI_API_KEY.includes("-----------") && 
+             !GEMINI_API_KEY.includes("貼り付けて")) {
+      currentApiKey = GEMINI_API_KEY;
+    }
+
+    // キーが見つからない場合の案内
+    if (!currentApiKey) {
+      appendMessage("System", "APIキーが設定されていません。<br>下の入力欄にGoogle AI StudioのAPIキーを貼り付けて送信してください。");
+      inputField.placeholder = "APIキーを入力してください (AIza...)";
+    }
+  });
 
   let pageContext = "";
-  let currentPageUrl = ""; // URLを保存する変数を追加
+  let currentPageUrl = "";
 
+  // ページ内容の取得処理
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (chrome.runtime.lastError || !tabs || tabs.length === 0) return;
     const tabId = tabs[0].id;
-    currentPageUrl = tabs[0].url; // URLを取得
+    currentPageUrl = tabs[0].url;
     
     if (tabs[0].url.startsWith("chrome://") || tabs[0].url.startsWith("edge://")) {
       appendMessage("System", "このページでは使用できません。");
@@ -30,7 +50,9 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.tabs.sendMessage(tabId, { action: "getPageContent" }, (response) => {
         if (!chrome.runtime.lastError && response && response.content) {
           pageContext = response.content;
-          appendMessage("System", "ページを読み込みました。");
+          if (currentApiKey) {
+             appendMessage("System", "ページを読み込みました。");
+          }
         }
       });
     });
@@ -44,7 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // ★更新: 会話のエクスポート処理
+  // 会話のエクスポート処理
   exportBtn.addEventListener('click', () => {
     const messages = historyDiv.querySelectorAll('.message');
     
@@ -54,10 +76,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const now = new Date();
-    // 日時フォーマット (YYYY/MM/DD HH:MM:SS)
     const dateStr = now.toLocaleString('ja-JP');
 
-    // ファイル内容のヘッダー作成
     let exportText = `# Gemini Page Chat History\n\n`;
     exportText += `- **Date**: ${dateStr}\n`;
     exportText += `- **URL**: ${currentPageUrl}\n\n`;
@@ -72,7 +92,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     
-    // ★ファイル名: gemini_pagechat_yyyymmdd_hhmm.md
     const yyyy = now.getFullYear();
     const mm = (now.getMonth() + 1).toString().padStart(2, '0');
     const dd = now.getDate().toString().padStart(2, '0');
@@ -89,28 +108,49 @@ document.addEventListener('DOMContentLoaded', () => {
     URL.revokeObjectURL(url);
   });
 
+  // 送信ボタンクリック時の処理
   sendBtn.addEventListener('click', async () => {
-    const userMessage = inputField.value;
-    const selectedModel = modelSelect.value;
-    const apiKey = (typeof GEMINI_API_KEY !== 'undefined') ? GEMINI_API_KEY : "";
+    const userInput = inputField.value.trim();
+    if (!userInput) return;
 
-    if (!userMessage) return;
-    if (!apiKey || apiKey.length < 10) {
-      appendMessage("Error", "APIキーが設定されていません。");
-      return;
+    // ★ APIキー未登録時の処理
+    if (!currentApiKey) {
+      // 簡易バリデーション (GoogleのAPIキーは通常 "AIza" から始まり、ある程度の長さがある)
+      if (userInput.startsWith("AIza") && userInput.length > 30) {
+        // ストレージに保存
+        chrome.storage.local.set({ gemini_api_key: userInput }, () => {
+          currentApiKey = userInput;
+          appendMessage("System", "APIキーを登録しました！<br>続けて質問を入力してください。");
+          inputField.value = "";
+          inputField.placeholder = "質問を入力 (Ctrl+Enterで送信)...";
+        });
+      } else {
+        appendMessage("Error", "無効なAPIキーの形式です。<br>正しいAPIキーを入力してください。");
+      }
+      return; // ここで処理を中断
     }
 
-    appendMessage("You", userMessage);
+    // ★ 通常のチャット送信処理
+    const selectedModel = modelSelect.value;
+    
+    appendMessage("You", userInput);
     inputField.value = "";
     const loadingId = appendMessage("System", "考え中...");
 
     try {
-      const response = await callGeminiAPI(apiKey, userMessage, pageContext, selectedModel);
+      const response = await callGeminiAPI(currentApiKey, userInput, pageContext, selectedModel);
       removeMessage(loadingId);
       appendMessage("Gemini", response);
     } catch (error) {
       removeMessage(loadingId);
-      appendMessage("Error", `エラーが発生しました:\n${error.message}`);
+      
+      // APIキーが無効だった場合のエラーハンドリング
+      if (error.message.includes("400") || error.message.includes("API key")) {
+         appendMessage("Error", "APIエラーが発生しました。APIキーが無効の可能性があります。<br>拡張機能を再読み込みしてキーを再設定してください。");
+         // 必要であればここで chrome.storage.local.remove('gemini_api_key') などを検討
+      } else {
+         appendMessage("Error", `エラーが発生しました:\n${error.message}`);
+      }
     }
   });
 
